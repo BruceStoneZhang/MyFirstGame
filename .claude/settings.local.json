@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where python3 *)",
+      "Bash(pip3 list *)",
+      "Bash(python3 *)",
+      "Bash(pip install *)",
+      "Bash(apt list *)",
+      "Bash(chocolatey list *)",
+      "Bash(antiword *)",
+      "Bash(antiword -m UTF-8 \"C:/Users/econi/source/repos/MyFirstGame/docs/捣蛋大鹅·完整潜行闯关游戏.doc\")",
+      "Read(//tmp/**)",
+      "Bash(iconv -f UTF-8 -t UTF-8)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:subagent-driven-development)",
+      "Bash(node *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet run *)"
+    ]
+  }
+}

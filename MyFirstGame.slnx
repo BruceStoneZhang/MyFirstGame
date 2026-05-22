@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="MyFirstGame/MyFirstGame.csproj" />
+  <Project Path="大鹅模拟器/大鹅模拟器.csproj" Id="e96611bb-b5c6-43b9-a6cd-7efac5ba1019" />
+</Solution>

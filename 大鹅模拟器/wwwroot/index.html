@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>捣蛋大鹅</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <section class="panel">
+      <h1>捣蛋大鹅</h1>
+      <div class="view-badge">2.5D 斜视角</div>
+      <p>目标：偷走院子里的物品，再跑回池塘出口。</p>
+      <ul>
+        <li>移动：WASD / 方向键</li>
+        <li>鸣叫：空格</li>
+        <li>互动：E 键</li>
+        <li>场景：已切换为带高度层次的 3D 风格视角</li>
+        <li>躲进草丛可以降低被发现的概率</li>
+      </ul>
+      <div class="hud">
+        <div id="level">关卡：第 1 关</div>
+        <div id="status">状态：潜行中</div>
+        <div id="progress">战利品：0 / 4</div>
+        <div id="hint">提示：先去偷花园里的东西。</div>
+      </div>
+      <button id="restart">重新开始</button>
+    </section>
+    <section class="game-shell">
+      <canvas id="game" width="960" height="540"></canvas>
+    </section>
+  </div>
+  <script src="/levels.js"></script>
+  <script src="/interactions.js"></script>
+  <script src="/script.js"></script>
+</body>
+</html>
