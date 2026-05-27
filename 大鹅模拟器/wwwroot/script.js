@@ -54,7 +54,8 @@ const enemy = {
     _lookDownVision: 60,
     _normalVision: 200,
     _treePos: null,
-    _gatePos: null
+    _gatePos: null,
+    _glowOutfit: false
 };
 
 const secondaryEnemy = {
@@ -74,6 +75,7 @@ let exitZone = { x: 0, y: 0, width: 0, height: 0 };
 let walls = [];
 let bushes = [];
 let items = [];
+let npcs = [];
 let ripples = [];
 let message = '';
 let gameState = 'playing';
@@ -102,6 +104,9 @@ function loadLevel(index) {
     bushes = (level.bushes || []).map(cloneRect);
     // Deep clone items
     items = (level.items || []).map(item => ({ ...item, collected: false }));
+    // Deep clone npcs for runtime animation/state
+    npcs = (level.npcs || []).map(npc => ({ ...npc }));
+    level._npcs = npcs;
 
     // Deep clone objects (for task levels) to avoid mutating LEVELS data
     if (level.objects) {
@@ -150,10 +155,12 @@ function loadLevel(index) {
     enemy._normalVision = ed.normalVision || 200;
     enemy._treePos = ed.treePos || null;
     enemy._gatePos = ed.gatePos || null;
+    enemy._glowOutfit = ed._glowOutfit || false;
 
     // Sync enemy state back to level.enemy for interactions.js precondition checks
     ed._isLookingDown = false;
     ed._phase = enemy._phase;
+    ed._glowOutfit = enemy._glowOutfit;
 
     // Secondary enemy
     const sed = level.secondaryEnemy;
@@ -892,45 +899,54 @@ function drawVisionCone() {
 }
 
 function drawGardener() {
-    drawVisionCone();
+  drawVisionCone();
 
-    drawShadow(enemy.x, enemy.y, 22, 12, 0.24);
+  drawShadow(enemy.x, enemy.y, 22, 12, 0.24);
 
-    const directionX = Math.cos(enemy.facing);
-    const directionY = Math.sin(enemy.facing);
-    const body = projectPoint(enemy.x, enemy.y, 22);
-    const head = projectPoint(enemy.x + directionX * 8, enemy.y + directionY * 5, 48);
-    const leftFoot = projectPoint(enemy.x - 9, enemy.y + 6, 0);
-    const rightFoot = projectPoint(enemy.x + 9, enemy.y + 6, 0);
+  const directionX = Math.cos(enemy.facing);
+  const directionY = Math.sin(enemy.facing);
+  const body = projectPoint(enemy.x, enemy.y, 22);
+  const head = projectPoint(enemy.x + directionX * 8, enemy.y + directionY * 5, 48);
+  const leftFoot = projectPoint(enemy.x - 9, enemy.y + 6, 0);
+  const rightFoot = projectPoint(enemy.x + 9, enemy.y + 6, 0);
 
-    ctx.strokeStyle = '#20325f';
-    ctx.lineWidth = 4;
+  if (enemy._glowOutfit) {
+    const glow = projectPoint(enemy.x, enemy.y, 30);
+    ctx.strokeStyle = 'rgba(255, 242, 122, 0.7)';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(body.x - 6, body.y + 10);
-    ctx.lineTo(leftFoot.x, leftFoot.y);
-    ctx.moveTo(body.x + 6, body.y + 10);
-    ctx.lineTo(rightFoot.x, rightFoot.y);
+    ctx.ellipse(glow.x, glow.y, 34, 18, 0, 0, Math.PI * 2);
     ctx.stroke();
+  }
 
-    ctx.fillStyle = '#3357b2';
-    ctx.beginPath();
-    ctx.ellipse(body.x, body.y, 20, 24, 0, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.strokeStyle = '#20325f';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(body.x - 6, body.y + 10);
+  ctx.lineTo(leftFoot.x, leftFoot.y);
+  ctx.moveTo(body.x + 6, body.y + 10);
+  ctx.lineTo(rightFoot.x, rightFoot.y);
+  ctx.stroke();
 
-    ctx.fillStyle = '#f3d6b0';
-    ctx.beginPath();
-    ctx.arc(head.x, head.y, 12, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.fillStyle = enemy._glowOutfit ? '#ffd84f' : '#3357b2';
+  ctx.beginPath();
+  ctx.ellipse(body.x, body.y, 20, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-    ctx.fillStyle = '#1d2c66';
-    ctx.fillRect(body.x - 16, body.y + 14, 32, 8);
+  ctx.fillStyle = '#f3d6b0';
+  ctx.beginPath();
+  ctx.arc(head.x, head.y, 12, 0, Math.PI * 2);
+  ctx.fill();
 
-    ctx.fillStyle = '#ff6b6b';
-    ctx.fillRect(24, 20, 180, 14);
-    ctx.fillStyle = '#ffee58';
-    ctx.fillRect(24, 20, 180 * (enemy.alert / 100), 14);
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.strokeRect(24, 20, 180, 14);
+  ctx.fillStyle = enemy._glowOutfit ? '#fff8c8' : '#1d2c66';
+  ctx.fillRect(body.x - 16, body.y + 14, 32, 8);
+
+  ctx.fillStyle = '#ff6b6b';
+  ctx.fillRect(24, 20, 180, 14);
+  ctx.fillStyle = '#ffee58';
+  ctx.fillRect(24, 20, 180 * (enemy.alert / 100), 14);
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.strokeRect(24, 20, 180, 14);
 }
 
 function drawGoose() {
@@ -1092,9 +1108,10 @@ function drawGoose() {
 
 function drawNPCs() {
     const level = LEVELS[currentLevelIndex];
-    if (!level.npcs || level.npcs.length === 0) return;
+    const levelNpcs = level._npcs || level.npcs;
+    if (!levelNpcs || levelNpcs.length === 0) return;
 
-    for (const npc of level.npcs) {
+    for (const npc of levelNpcs) {
         const point = projectPoint(npc.x, npc.y, 22);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -1148,6 +1165,34 @@ function drawNPCs() {
         ctx.fillText(npc.emoji, point.x, point.y);
         ctx.font = '13px Microsoft YaHei';
         ctx.fillText(npc.label, point.x, point.y + 24);
+    }
+}
+
+function updateNPCs(dt) {
+    const level = LEVELS[currentLevelIndex];
+    const levelNpcs = level._npcs || level.npcs;
+    if (!levelNpcs || levelNpcs.length === 0) return;
+
+    for (const npc of levelNpcs) {
+        if (npc.id !== 'kitten') continue;
+
+        npc._wanderTimer = (npc._wanderTimer || 0) - dt;
+        if (npc._wanderTimer <= 0) {
+            npc._wanderTimer = 1.2 + Math.random() * 1.8;
+            const angle = Math.random() * Math.PI * 2;
+            npc._vx = Math.cos(angle) * (24 + Math.random() * 28);
+            npc._vy = Math.sin(angle) * (24 + Math.random() * 28);
+        }
+
+        npc.x += (npc._vx || 0) * dt;
+        npc.y += (npc._vy || 0) * dt;
+
+        const minX = world.x + 18;
+        const maxX = world.x + world.width - 18;
+        const minY = world.y + 18;
+        const maxY = world.y + world.height - 18;
+        npc.x = clamp(npc.x, minX, maxX);
+        npc.y = clamp(npc.y, minY, maxY);
     }
 }
 
@@ -1253,6 +1298,7 @@ function frame(timestamp) {
       if (typeof updateInteractions === 'function') {
         updateInteractions(dt);
       }
+      updateNPCs(dt);
       updateRipples(dt);
     }
 

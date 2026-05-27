@@ -82,7 +82,8 @@ function completeCurrentTask() {
       }
       message = '最终奖励已解锁：👑 按 E 由大鹅自己领取皇冠。';
     } else {
-      message = '全部任务完成！你可以自己继续当前关，准备好后再进入下一关。';
+      setTimeout(() => advanceTaskLevel(), 2000);
+      message = '全部任务完成！准备进入下一关...';
     }
   }
 }
@@ -104,8 +105,11 @@ function triggerSpeech(speechDef) {
     const neighbors = (level.npcs || []).find(n => n.id === 'neighbors');
     if (neighbors) pos = { x: neighbors.x, y: neighbors.y - 25 };
   } else if (speechDef.speaker === 'pig') {
-    const pig = (level.npcs || []).find(n => n.id === 'pig');
+    const pig = ((level._npcs || level.npcs) || []).find(n => n.id === 'pig');
     if (pig) pos = { x: pig.x, y: pig.y - 20 };
+  } else if (speechDef.speaker === 'kitten') {
+    const kitten = ((level._npcs || level.npcs) || []).find(n => n.id === 'kitten');
+    if (kitten) pos = { x: kitten.x, y: kitten.y - 20 };
   }
 
   speechBubbles.push({
@@ -139,8 +143,9 @@ function findNearestInteractable() {
   }
 
   // Check npcs array (waterCup etc.)
-  if (level.npcs) {
-    for (const npc of level.npcs) {
+  const levelNpcs = level._npcs || level.npcs;
+  if (levelNpcs) {
+    for (const npc of levelNpcs) {
       if ((task.targetObjId || task.carryObjId) !== npc.id) continue;
       const dist = Math.hypot(goosePos.x - npc.x, goosePos.y - npc.y);
       const range = task.interactRange || 40;
@@ -181,7 +186,7 @@ function findNearestFreePeckTarget() {
     }
   }
 
-  const npcs = level.npcs || [];
+  const npcs = level._npcs || level.npcs || [];
   for (const npc of npcs) {
     const dist = Math.hypot(goose.x - npc.x, goose.y - npc.y);
     if (dist <= FREE_PECK_RANGE) {
@@ -246,12 +251,13 @@ function tryFreePeck() {
 
 function findNearbyCrownHelperNpc() {
   const level = LEVELS[currentLevelIndex];
-  if (!level || !level.npcs || level.npcs.length === 0) return null;
+  const levelNpcs = level ? (level._npcs || level.npcs) : null;
+  if (!levelNpcs || levelNpcs.length === 0) return null;
 
   let nearest = null;
   let nearestDist = Infinity;
 
-  for (const npc of level.npcs) {
+  for (const npc of levelNpcs) {
     const dist = Math.hypot(goose.x - npc.x, goose.y - npc.y);
     if (dist <= 60 && dist < nearestDist) {
       nearest = npc;

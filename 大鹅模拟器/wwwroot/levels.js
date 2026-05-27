@@ -12,8 +12,8 @@ const ENEMY_TYPES = {
 const LEVELS = [
   // ========== 第1关：农场初探（教学关） ==========
   {
-    name: '第 1 关：农场初探',
-    intro: '提示：先去偷花园里的东西。按 E 可以互动。',
+    name: '第 1 关：农场初探（鹅见鹅爱）',
+    intro: '提示：先去顺点花园宝贝。按 E 互动，动作要像没事鹅一样。',
     gameType: 'tutorial',
     gooseStart: { x: 94, y: 438 },
     exitZone: { x: 36, y: 380, width: 120, height: 110 },
@@ -47,10 +47,10 @@ const LEVELS = [
       ]
     },
     items: [
-      { x: 278, y: 428, emoji: '🔑', name: '花园钥匙' },
-      { x: 430, y: 220, emoji: '🥕', name: '胡萝卜' },
-      { x: 728, y: 110, emoji: '🧺', name: '野餐篮' },
-      { x: 852, y: 430, emoji: '🔔', name: '铜铃' }
+      { x: 278, y: 428, emoji: '🔑', name: '万能钥匙（其实也就一把）' },
+      { x: 430, y: 220, emoji: '🥕', name: '巨甜胡萝卜' },
+      { x: 728, y: 110, emoji: '🧺', name: '神秘野餐篮' },
+      { x: 852, y: 430, emoji: '🔔', name: '吵醒全村的铜铃' }
     ],
     npcs: [],
     tasks: []
@@ -58,8 +58,8 @@ const LEVELS = [
 
   // ========== 第2关：农场小花招 ==========
   {
-    name: '第 2 关：农场小花招',
-    intro: '提示：先悄悄把花盆推到猪圈边，让猪吃掉农夫的花。',
+    name: '第 2 关：农场整活现场',
+    intro: '提示：先把花盆推到猪圈边，借猪之口完成花艺重构。',
     gameType: 'task',
     gooseStart: { x: 80, y: 430 },
     walls: [
@@ -111,9 +111,9 @@ const LEVELS = [
         type: 'push',
         targetObjId: 'flowerPot',
         targetZone: { x: 680, y: 60, width: 200, height: 140 },
-        hint: '走到花盆旁按 E 键推花盆，把花盆推到猪圈边',
-        onCompleteSpeech: { speaker: 'pig', text: '哼哼哼！🌺', duration: 2.5 },
-        onCompleteHint: '猪冲过来吃花了！现在去弄湿小孩的书。'
+        hint: '走到花盆旁按 E 键推花盆，给猪送上今日鲜花自助餐',
+        onCompleteSpeech: { speaker: 'pig', text: '哼哼！这花比饲料香多了！🌺', duration: 2.5 },
+        onCompleteHint: '猪已光盘！现在去制造“课本泡水事故”。'
       },
       {
         id: 2,
@@ -121,17 +121,17 @@ const LEVELS = [
         type: 'proximity',
         targetObjId: 'waterCup',
         interactRange: 35,
-        hint: '溜到小孩身边，靠近水杯按 E 键撞翻它',
-        onCompleteSpeech: { speaker: 'kid', text: '呜哇——妈妈！我的书！', duration: 2.5 },
+        hint: '溜到小孩身边，靠近水杯按 E 键，完成精准泼水',
+        onCompleteSpeech: { speaker: 'kid', text: '啊——我的书变成水系教材了！', duration: 2.5 },
         onCompleteHint: null
       }
     ]
   },
 
-  // ========== 第3关：女王的宫殿 ==========
+  // ========== 第3关：游乐场大翻车 ==========
   {
-    name: '第 3 关：女王的宫殿',
-    intro: '提示：趁女王低头整理裙摆时，溜过去把皇冠啄到桌子底下。',
+    name: '第 3 关：游乐场大翻车',
+    intro: '提示：趁园长分心，溜进游乐场中心把皇冠啄下，顺便别吓到小猫咪。',
     gameType: 'task',
     gooseStart: { x: 72, y: 140 },
     walls: [
@@ -175,7 +175,9 @@ const LEVELS = [
       detectAngle: Math.PI / 3
     },
     items: [],
-    npcs: [],
+    npcs: [
+      { id: 'kitten', x: 760, y: 360, emoji: '🐱', label: '小猫咪' }
+    ],
     objects: [
       { id: 'crown', x: 460, y: 155, emoji: '👑', label: '皇冠',
         state: 'onHead', tablePos: { x: 600, y: 310 } },
@@ -192,15 +194,15 @@ const LEVELS = [
         targetObjId: 'crown',
         interactRange: 40,
         requiresEnemyState: 'lookingDown',
-        hint: '趁女王低头整理裙摆时，接近皇冠按 E 键啄落',
+        hint: '趁园长低头整理演出服时，接近皇冠按 E 键轻轻一啄',
         onComplete: function(state) {
           const crown = state.objects.find(o => o.id === 'crown');
           crown.state = 'underTable';
           crown.x = crown.tablePos.x;
           crown.y = crown.tablePos.y;
         },
-        onCompleteSpeech: { speaker: 'queen', text: '咦？我的皇冠呢？', duration: 2.5 },
-        onCompleteHint: '皇冠掉到桌下了！现在把桌上的苹果推进下水道。'
+        onCompleteSpeech: { speaker: 'queen', text: '咦？我的皇冠刚才还在头上！', duration: 2.5 },
+        onCompleteHint: '皇冠已“隐身”到桌下！现在把桌上的苹果推进下水道。'
       },
       {
         id: 2,
@@ -208,13 +210,31 @@ const LEVELS = [
         type: 'push',
         targetObjId: 'apple',
         targetZone: { x: 625, y: 370, width: 50, height: 40 },
-        hint: '趁女王找皇冠时，溜到石桌旁把苹果推下下水道',
+        hint: '趁园长找皇冠时，溜到小吃摊旁把苹果推进排水口',
         onComplete: function(state) {
           const apple = state.objects.find(o => o.id === 'apple');
           apple.state = 'inSewer';
           apple.x = -100; apple.y = -100;
         },
-        onCompleteSpeech: { speaker: 'queen', text: '什么声音？', duration: 2 },
+        onCompleteSpeech: { speaker: 'queen', text: '等等，我的苹果也离宫出走了？', duration: 2 },
+        onCompleteHint: '小猫咪开始巡场了！靠近它按 E，让它把园长衣服变闪亮。'
+      },
+      {
+        id: 3,
+        desc: '让小猫咪把园长衣服变成发光款',
+        type: 'proximity',
+        targetObjId: 'kitten',
+        interactRange: 48,
+        hint: '追上乱跑的小猫咪，靠近它按 E 触发“喵光改造”',
+        onComplete: function(state) {
+          if (state.enemy) {
+            state.enemy._glowOutfit = true;
+          }
+          if (state.level && state.level.enemy) {
+            state.level.enemy._glowOutfit = true;
+          }
+        },
+        onCompleteSpeech: { speaker: 'kitten', text: '喵呜！发光套装已激活✨', duration: 2.5 },
         onCompleteHint: null
       }
     ]
