@@ -3,11 +3,16 @@
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const pageBody = document.body;
+const gameShell = document.querySelector('.game-shell');
 const restartButton = document.getElementById('restart');
 const levelText = document.getElementById('level');
 const statusText = document.getElementById('status');
 const progressText = document.getElementById('progress');
 const hintText = document.getElementById('hint');
+const outfitSelect = document.getElementById('outfitSelect');
+const hatSelect = document.getElementById('hatSelect');
+const weaponSelect = document.getElementById('weaponSelect');
 
 const keys = new Set();
 const world = { x: 24, y: 24, width: 912, height: 492 };
@@ -55,7 +60,11 @@ const enemy = {
     _normalVision: 200,
     _treePos: null,
     _gatePos: null,
-    _glowOutfit: false
+    _glowOutfit: false,
+    _defeated: false,
+    _defeatFxTimer: 0,
+    _hasUmbrella: false,
+    _umbrellaDropped: false
 };
 
 const secondaryEnemy = {
@@ -83,6 +92,17 @@ let lastTime = 0;
 let sceneTime = 0;
 let crownRewardUnlocked = false;
 let gooseWearingCrown = false;
+let focusMode = false;
+
+const GOOSE_SKIN_KEY = 'goose-skin-v1';
+const OUTFIT_OPTIONS = ['cool', 'sailor', 'armor', 'king'];
+const HAT_OPTIONS = ['straw', 'beanie', 'wizard'];
+const WEAPON_OPTIONS = ['umbrella', 'woodSword', 'hammer'];
+const gooseSkin = {
+    outfit: 'cool',
+    hat: 'straw',
+    weapon: 'umbrella'
+};
 
 const renderer = {
     groundScale: 0.58,
@@ -91,8 +111,81 @@ const renderer = {
     offsetY: 92
 };
 
+function isRainyLevel() {
+    return currentLevelIndex >= 5;
+}
+
+function hasUmbrellaEquipped() {
+    return gooseSkin.weapon === 'umbrella';
+}
+
 function cloneRect(rect) {
     return { ...rect };
+}
+
+async function toggleFocusMode() {
+    focusMode = !focusMode;
+    pageBody.classList.toggle('focus-mode', focusMode);
+
+    if (!gameShell) {
+        return;
+    }
+
+    if (focusMode) {
+        if (document.fullscreenElement !== gameShell) {
+            try {
+                await gameShell.requestFullscreen();
+            } catch {
+                // ignore fullscreen failure and keep focus mode
+            }
+        }
+        return;
+    }
+
+    if (document.fullscreenElement === gameShell) {
+        try {
+            await document.exitFullscreen();
+        } catch {
+            // ignore exit failure
+        }
+    }
+}
+
+function loadGooseSkin() {
+    try {
+        const raw = localStorage.getItem(GOOSE_SKIN_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+            if (typeof parsed.outfit === 'string' && OUTFIT_OPTIONS.includes(parsed.outfit)) {
+                gooseSkin.outfit = parsed.outfit;
+            }
+            if (typeof parsed.hat === 'string' && HAT_OPTIONS.includes(parsed.hat)) {
+                gooseSkin.hat = parsed.hat;
+            }
+            if (typeof parsed.weapon === 'string' && WEAPON_OPTIONS.includes(parsed.weapon)) {
+                gooseSkin.weapon = parsed.weapon;
+            }
+        }
+    } catch {
+        // ignore invalid localStorage payload
+    }
+}
+
+function saveGooseSkin() {
+    localStorage.setItem(GOOSE_SKIN_KEY, JSON.stringify(gooseSkin));
+}
+
+function syncGooseSkinUI() {
+    if (outfitSelect) {
+        outfitSelect.value = gooseSkin.outfit;
+    }
+    if (hatSelect) {
+        hatSelect.value = gooseSkin.hat;
+    }
+    if (weaponSelect) {
+        weaponSelect.value = gooseSkin.weapon;
+    }
 }
 
 function loadLevel(index) {
@@ -156,11 +249,16 @@ function loadLevel(index) {
     enemy._treePos = ed.treePos || null;
     enemy._gatePos = ed.gatePos || null;
     enemy._glowOutfit = ed._glowOutfit || false;
+    enemy._defeated = false;
+    enemy._defeatFxTimer = 0;
+    enemy._hasUmbrella = isRainyLevel() && [ENEMY_TYPES.GARDENER, ENEMY_TYPES.FARMER, ENEMY_TYPES.WOODCUTTER].includes(ed.type);
+    enemy._umbrellaDropped = false;
 
     // Sync enemy state back to level.enemy for interactions.js precondition checks
     ed._isLookingDown = false;
     ed._phase = enemy._phase;
     ed._glowOutfit = enemy._glowOutfit;
+    ed._umbrellaDropped = enemy._umbrellaDropped;
 
     // Secondary enemy
     const sed = level.secondaryEnemy;
@@ -180,6 +278,9 @@ function loadLevel(index) {
 
     ripples = [];
     message = level.intro;
+    if (isRainyLevel()) {
+        message += ' 雨天里打着雨伞更不容易被发现。';
+    }
 
     if (typeof initTaskSystem === 'function') {
         initTaskSystem();
@@ -326,6 +427,13 @@ function canEnemySeeGoose(enemyData, enemyDef) {
         effectiveRange = goose.hidden && goose.noisyTimer <= 0 ? 92 : (enemyDef.normalVision || 238);
     }
 
+    if (isRainyLevel()) {
+        effectiveRange *= hasUmbrellaEquipped() ? 0.76 : 1.08;
+        if (enemyData._hasUmbrella && enemyData._umbrellaDropped) {
+            effectiveRange *= 0.8;
+        }
+    }
+
     if (dist > effectiveRange) return false;
 
     const targetAngle = Math.atan2(toGoose.y, toGoose.x);
@@ -353,8 +461,11 @@ function canGuardSeeGoose() {
 
     const toGoose = { x: goose.x - secondaryEnemy.x, y: goose.y - secondaryEnemy.y };
     const dist = Math.hypot(toGoose.x, toGoose.y);
+    const detectRange = isRainyLevel()
+        ? secondaryEnemy.detectRange * (hasUmbrellaEquipped() ? 0.76 : 1.08)
+        : secondaryEnemy.detectRange;
 
-    if (dist > secondaryEnemy.detectRange) return false;
+    if (dist > detectRange) return false;
 
     const targetAngle = Math.atan2(toGoose.y, toGoose.x);
     if (angleDifference(targetAngle, secondaryEnemy.facing) > secondaryEnemy.detectAngle / 2) return false;
@@ -372,8 +483,11 @@ function canGuardSeeGoose() {
 
 function advanceLevel() {
     if (currentLevelIndex >= LEVELS.length - 1) {
-        gameState = 'won';
-        message = '终极捣蛋鹅！你称霸了整个小镇！';
+        crownRewardUnlocked = true;
+        gooseWearingCrown = true;
+        gameState = 'playing';
+        loadLevel(2);
+        message = '提示：终章完成！你戴着皇冠回到第 3 关巡游。';
         return;
     }
 
@@ -392,8 +506,9 @@ function updateGoose(dt) {
 
     if (velocityX !== 0 || velocityY !== 0) {
         const length = Math.hypot(velocityX, velocityY);
-        velocityX = (velocityX / length) * goose.speed;
-        velocityY = (velocityY / length) * goose.speed;
+        const moveSpeed = isRainyLevel() && !hasUmbrellaEquipped() ? goose.speed * 0.8 : goose.speed;
+        velocityX = (velocityX / length) * moveSpeed;
+        velocityY = (velocityY / length) * moveSpeed;
         goose.facing = Math.atan2(velocityY, velocityX);
     }
 
@@ -426,6 +541,20 @@ function updateGoose(dt) {
 function updateGardener(dt) {
     const level = LEVELS[currentLevelIndex];
     const ed = level.enemy;
+
+    if (enemy._defeated) {
+        enemy.alert = 0;
+        enemy.chaseTimer = 0;
+        enemy.investigateTimer = 0;
+        enemy.investigatePoint = null;
+        enemy.state = 'defeated';
+        enemy._defeatFxTimer = Math.max(0, enemy._defeatFxTimer - dt);
+        return;
+    }
+
+    if (ed.type === ENEMY_TYPES.QUEEN || ed.type === ENEMY_TYPES.GUARD) {
+        enemy._defeated = false;
+    }
 
     // === Farmer: sit/patrol cycle ===
     if (ed.type === ENEMY_TYPES.FARMER) {
@@ -578,6 +707,10 @@ function updateGardener(dt) {
         }
     }
 
+    if (isRainyLevel() && enemy._hasUmbrella && enemy._umbrellaDropped) {
+        speed *= 0.82;
+    }
+
     // Don't move if farmer is sitting or queen or phase 1/3 woodcutter
     const shouldMove = !(
         (ed.type === ENEMY_TYPES.FARMER && enemy._isSitting) ||
@@ -593,9 +726,19 @@ function updateGardener(dt) {
         moveEntity(enemy, (dx / len) * speed, (dy / len) * speed, dt);
     }
 
-      if (!gooseWearingCrown && distance(goose, enemy) < goose.radius + enemy.radius + 4) {
-        if (goose.pickupGraceTimer <= 0) {
-          gameState = 'lost';
+      const inCatchRange = distance(goose, enemy) < goose.radius + enemy.radius + 4;
+      if (!gooseWearingCrown && inCatchRange) {
+        const hasWeapon = typeof gooseSkin !== 'undefined' && gooseSkin && !!gooseSkin.weapon;
+        const canMeleeCounter = hasWeapon && (
+            ed.type === ENEMY_TYPES.GARDENER ||
+            ed.type === ENEMY_TYPES.FARMER ||
+            ed.type === ENEMY_TYPES.WOODCUTTER
+        );
+
+        if (canMeleeCounter) {
+            message = '提示：近身压制中！按 E 使用武器反击。';
+        } else if (goose.pickupGraceTimer <= 0) {
+            gameState = 'lost';
         }
       }
     }
@@ -671,7 +814,9 @@ function updateHud() {
         return;
     }
 
-    if (goose.pickupGraceTimer > 0) {
+    if (enemy._defeated) {
+      statusText.textContent = '状态：园丁已被击退';
+    } else if (goose.pickupGraceTimer > 0) {
       statusText.textContent = '状态：偷到手，短暂无敌';
     } else if (enemy.state === 'chase') {
       statusText.textContent = '状态：快跑！';
@@ -683,6 +828,10 @@ function updateHud() {
         statusText.textContent = '状态：叼着' + (carriedItem.label || '物品');
     } else if (gooseWearingCrown) {
         statusText.textContent = '状态：女王形态（不可被抓）';
+    } else if (isRainyLevel() && hasUmbrellaEquipped()) {
+        statusText.textContent = '状态：雨中撑伞潜行';
+    } else if (isRainyLevel()) {
+        statusText.textContent = '状态：淋雨潜行';
     } else {
         statusText.textContent = '状态：潜行中';
     }
@@ -735,6 +884,37 @@ function drawShadow(x, y, radiusX, radiusY, alpha = 0.24) {
     drawGroundEllipse(x, y, radiusX, radiusY, '#050a07', alpha);
 }
 
+function drawRainOverlay() {
+    if (!isRainyLevel()) {
+        return;
+    }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(26, 38, 58, 0.16)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(190, 220, 255, 0.38)';
+    ctx.lineWidth = 1.4;
+
+    for (let i = -4; i < 34; i += 1) {
+        const offsetX = (sceneTime * 220 + i * 53) % (canvas.width + 80);
+        const offsetY = (sceneTime * 460 + i * 97) % (canvas.height + 120);
+        const x = offsetX - 40;
+        const y = offsetY - 120;
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 14, y + 28);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + 260, y - 180);
+        ctx.lineTo(x + 246, y - 152);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
 function drawPrism(rect, height, colors) {
     const northWest = projectPoint(rect.x, rect.y, 0);
     const northEast = projectPoint(rect.x + rect.width, rect.y, 0);
@@ -779,11 +959,12 @@ function drawExitZone() {
 }
 
 function drawGround() {
+    const rainyLevel = isRainyLevel();
     const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    skyGradient.addColorStop(0, currentLevelIndex === 0 ? '#9fd3ff' : '#a7c9ff');
-    skyGradient.addColorStop(0.42, currentLevelIndex === 0 ? '#d7efff' : '#dae8ff');
-    skyGradient.addColorStop(0.43, currentLevelIndex === 0 ? '#7dcf67' : '#84c45d');
-    skyGradient.addColorStop(1, currentLevelIndex === 0 ? '#4b8a3d' : '#537f39');
+    skyGradient.addColorStop(0, rainyLevel ? '#5c7088' : (currentLevelIndex === 0 ? '#9fd3ff' : '#a7c9ff'));
+    skyGradient.addColorStop(0.42, rainyLevel ? '#8aa0b8' : (currentLevelIndex === 0 ? '#d7efff' : '#dae8ff'));
+    skyGradient.addColorStop(0.43, rainyLevel ? '#5b8a54' : (currentLevelIndex === 0 ? '#7dcf67' : '#84c45d'));
+    skyGradient.addColorStop(1, rainyLevel ? '#355234' : (currentLevelIndex === 0 ? '#4b8a3d' : '#537f39'));
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -821,7 +1002,7 @@ function drawGround() {
         ctx.stroke();
     }
 
-    const patchColor = currentLevelIndex === 0 ? '#67b459' : '#6da14d';
+    const patchColor = isRainyLevel() ? '#5d8f57' : (currentLevelIndex === 0 ? '#67b459' : '#6da14d');
     for (let i = 0; i < 28; i += 1) {
         const x = world.x + ((i * 137 + currentLevelIndex * 37) % world.width);
         const y = world.y + ((i * 79 + currentLevelIndex * 63) % world.height);
@@ -829,6 +1010,7 @@ function drawGround() {
     }
 
     drawExitZone();
+    drawRainOverlay();
 }
 
 function drawWalls() {
@@ -899,7 +1081,9 @@ function drawVisionCone() {
 }
 
 function drawGardener() {
-  drawVisionCone();
+  if (!enemy._defeated) {
+    drawVisionCone();
+  }
 
   drawShadow(enemy.x, enemy.y, 22, 12, 0.24);
 
@@ -928,18 +1112,57 @@ function drawGardener() {
   ctx.lineTo(rightFoot.x, rightFoot.y);
   ctx.stroke();
 
-  ctx.fillStyle = enemy._glowOutfit ? '#ffd84f' : '#3357b2';
+  ctx.fillStyle = enemy._defeated ? '#7e8a99' : (enemy._glowOutfit ? '#ffd84f' : '#3357b2');
   ctx.beginPath();
-  ctx.ellipse(body.x, body.y, 20, 24, 0, 0, Math.PI * 2);
+  ctx.ellipse(body.x, body.y, 20, enemy._defeated ? 12 : 24, enemy._defeated ? 0.25 : 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = '#f3d6b0';
   ctx.beginPath();
-  ctx.arc(head.x, head.y, 12, 0, Math.PI * 2);
+  ctx.arc(head.x, enemy._defeated ? head.y + 8 : head.y, 12, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = enemy._glowOutfit ? '#fff8c8' : '#1d2c66';
   ctx.fillRect(body.x - 16, body.y + 14, 32, 8);
+
+  if (isRainyLevel() && enemy._hasUmbrella && !enemy._umbrellaDropped && !enemy._defeated) {
+    const umbrellaTop = projectPoint(enemy.x - directionX * 1.5, enemy.y - directionY * 1.5, 72);
+    const umbrellaBottom = projectPoint(enemy.x - directionX * 4, enemy.y - directionY * 4, 18);
+    ctx.strokeStyle = '#6d4a2a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(umbrellaTop.x, umbrellaTop.y);
+    ctx.lineTo(umbrellaBottom.x, umbrellaBottom.y);
+    ctx.stroke();
+
+    ctx.fillStyle = '#4b6fd1';
+    ctx.beginPath();
+    ctx.arc(umbrellaTop.x, umbrellaTop.y + 2, 16, Math.PI, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (enemy._defeated && enemy._defeatFxTimer > 0) {
+    ctx.font = '18px Microsoft YaHei';
+    ctx.fillStyle = '#ffe082';
+    ctx.textAlign = 'center';
+    ctx.fillText('💫', head.x, head.y - 18);
+  }
+
+  if (isRainyLevel() && enemy._hasUmbrella && !enemy._umbrellaDropped && !enemy._defeated) {
+    const umbrellaTop = projectPoint(enemy.x - directionX * 1.5, enemy.y - directionY * 1.5, 72);
+    const umbrellaBottom = projectPoint(enemy.x - directionX * 4, enemy.y - directionY * 4, 18);
+    ctx.strokeStyle = '#6d4a2a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(umbrellaTop.x, umbrellaTop.y);
+    ctx.lineTo(umbrellaBottom.x, umbrellaBottom.y);
+    ctx.stroke();
+
+    ctx.fillStyle = '#4b6fd1';
+    ctx.beginPath();
+    ctx.arc(umbrellaTop.x, umbrellaTop.y + 2, 16, Math.PI, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.fillStyle = '#ff6b6b';
   ctx.fillRect(24, 20, 180, 14);
@@ -1091,6 +1314,218 @@ function drawGoose() {
     ctx.beginPath();
     ctx.ellipse(head.x, head.y, 10, 12, 0.15, 0, Math.PI * 2);
     ctx.fill();
+
+    if (gooseSkin.outfit === 'king') {
+        const cape = projectPoint(goose.x - directionX * 9, goose.y - directionY * 8, 22);
+
+        // 王袍披风
+        ctx.fillStyle = 'rgba(74, 22, 124, 0.92)';
+        ctx.beginPath();
+        ctx.moveTo(cape.x - 14, cape.y - 2);
+        ctx.lineTo(cape.x + 14, cape.y - 2);
+        ctx.lineTo(cape.x + 10, cape.y + 20);
+        ctx.lineTo(cape.x - 10, cape.y + 20);
+        ctx.closePath();
+        ctx.fill();
+
+        // 紫金礼袍
+        ctx.fillStyle = '#7e49b5';
+        ctx.beginPath();
+        ctx.ellipse(body.x, body.y + 2, 20, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 金色领饰
+        ctx.strokeStyle = 'rgba(232, 208, 120, 0.98)';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(neckBase.x + directionX * 1.2, neckBase.y + 1, 5.2, Math.PI * 0.1, Math.PI * 0.9);
+        ctx.stroke();
+
+        // 大王冠
+        const kingCrown = projectPoint(goose.x + directionX * 17, goose.y + directionY * 9, 52);
+        ctx.fillStyle = '#f5c542';
+        ctx.beginPath();
+        ctx.moveTo(kingCrown.x - 10, kingCrown.y + 6);
+        ctx.lineTo(kingCrown.x - 6, kingCrown.y - 5);
+        ctx.lineTo(kingCrown.x - 1, kingCrown.y + 1);
+        ctx.lineTo(kingCrown.x + 4, kingCrown.y - 6);
+        ctx.lineTo(kingCrown.x + 10, kingCrown.y + 6);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#ff5ca8';
+        ctx.beginPath();
+        ctx.arc(kingCrown.x + 3, kingCrown.y - 1, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 权杖
+        const staffTop = projectPoint(goose.x + directionX * 12, goose.y + directionY * 9, 40);
+        const staffBottom = projectPoint(goose.x + directionX * 8, goose.y + directionY * 12, 6);
+        ctx.strokeStyle = '#c8a13f';
+        ctx.lineWidth = 2.8;
+        ctx.beginPath();
+        ctx.moveTo(staffTop.x, staffTop.y);
+        ctx.lineTo(staffBottom.x, staffBottom.y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#6ee7ff';
+        ctx.beginPath();
+        ctx.arc(staffTop.x, staffTop.y - 2, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 王者光环
+        const aura = projectPoint(goose.x, goose.y, 30);
+        ctx.strokeStyle = 'rgba(255, 215, 110, 0.45)';
+        ctx.lineWidth = 1.9;
+        ctx.beginPath();
+        ctx.ellipse(aura.x, aura.y, 30, 14, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (gooseSkin.outfit === 'cool') {
+        // 酷感外套描边
+        ctx.strokeStyle = goose.hidden ? 'rgba(79, 86, 95, 0.75)' : '#263341';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.ellipse(body.x, body.y + 1, 22, 15, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 金属项链
+        ctx.strokeStyle = 'rgba(255, 214, 102, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(neckBase.x + directionX * 1.5, neckBase.y + 1, 5, Math.PI * 0.1, Math.PI * 0.9);
+        ctx.stroke();
+
+        // 墨镜
+        const shadesCenterX = head.x + directionX * 0.8;
+        const shadesCenterY = head.y - 2;
+        ctx.fillStyle = 'rgba(15, 19, 28, 0.92)';
+        ctx.beginPath();
+        ctx.ellipse(shadesCenterX - 3.4, shadesCenterY, 3.2, 2.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(shadesCenterX + 2.8, shadesCenterY, 3.2, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(180, 192, 210, 0.8)';
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(shadesCenterX - 0.2, shadesCenterY);
+        ctx.lineTo(shadesCenterX + 0.1, shadesCenterY);
+        ctx.stroke();
+    } else if (gooseSkin.outfit === 'sailor') {
+        ctx.fillStyle = 'rgba(45, 94, 165, 0.88)';
+        ctx.beginPath();
+        ctx.ellipse(body.x, body.y + 2, 20, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#e8f4ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(body.x - 10, body.y + 1);
+        ctx.lineTo(body.x + 10, body.y + 1);
+        ctx.moveTo(body.x - 8, body.y + 6);
+        ctx.lineTo(body.x + 8, body.y + 6);
+        ctx.stroke();
+    } else if (gooseSkin.outfit === 'armor') {
+        ctx.fillStyle = 'rgba(126, 134, 150, 0.9)';
+        ctx.beginPath();
+        ctx.ellipse(body.x, body.y + 2, 20, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(210, 220, 238, 0.95)';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(body.x, body.y - 8);
+        ctx.lineTo(body.x, body.y + 10);
+        ctx.moveTo(body.x - 10, body.y - 1);
+        ctx.lineTo(body.x + 10, body.y - 1);
+        ctx.stroke();
+    }
+
+    if (gooseSkin.hat === 'straw') {
+        const hatBase = projectPoint(goose.x + directionX * 16, goose.y + directionY * 9, 45);
+        ctx.fillStyle = '#d7b46a';
+        ctx.beginPath();
+        ctx.ellipse(hatBase.x, hatBase.y, 12, 4.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(hatBase.x - 4.2, hatBase.y - 8.5, 8.4, 6.5);
+    } else if (gooseSkin.hat === 'beanie') {
+        const hatBase = projectPoint(goose.x + directionX * 16, goose.y + directionY * 9, 45);
+        ctx.fillStyle = '#dc4f66';
+        ctx.beginPath();
+        ctx.ellipse(hatBase.x, hatBase.y - 2, 8, 6, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f9f2f2';
+        ctx.fillRect(hatBase.x - 7, hatBase.y - 3, 14, 3);
+    } else if (gooseSkin.hat === 'wizard') {
+        const hatBase = projectPoint(goose.x + directionX * 16, goose.y + directionY * 9, 45);
+        ctx.fillStyle = '#5f3ea8';
+        ctx.beginPath();
+        ctx.moveTo(hatBase.x, hatBase.y - 14);
+        ctx.lineTo(hatBase.x - 8, hatBase.y + 2);
+        ctx.lineTo(hatBase.x + 8, hatBase.y + 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#7fe4ff';
+        ctx.beginPath();
+        ctx.arc(hatBase.x + 2, hatBase.y - 8, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    if (gooseSkin.weapon === 'umbrella') {
+        const rainyUmbrella = isRainyLevel();
+        const top = rainyUmbrella
+            ? projectPoint(goose.x - directionX * 2, goose.y - directionY * 2, 64)
+            : projectPoint(goose.x - directionX * 10, goose.y - directionY * 10, 54);
+        const bottom = projectPoint(goose.x - directionX * 5, goose.y - directionY * 5, 8);
+        ctx.strokeStyle = '#5b3b1f';
+        ctx.lineWidth = rainyUmbrella ? 3 : 2.4;
+        ctx.beginPath();
+        ctx.moveTo(top.x, top.y);
+        ctx.lineTo(bottom.x, bottom.y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#5da2ff';
+        ctx.beginPath();
+        ctx.arc(top.x, top.y + 2, rainyUmbrella ? 15 : 8, Math.PI, Math.PI * 2);
+        ctx.fill();
+
+        if (rainyUmbrella) {
+            ctx.strokeStyle = 'rgba(232, 246, 255, 0.92)';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(top.x - 10, top.y + 2);
+            ctx.lineTo(top.x, top.y - 6);
+            ctx.lineTo(top.x + 10, top.y + 2);
+            ctx.stroke();
+        }
+    } else if (gooseSkin.weapon === 'woodSword') {
+        const hilt = projectPoint(goose.x + directionX * 10, goose.y + directionY * 6, 22);
+        const tip = projectPoint(goose.x + directionX * 18, goose.y + directionY * 11, 50);
+        ctx.strokeStyle = '#8b6b47';
+        ctx.lineWidth = 2.8;
+        ctx.beginPath();
+        ctx.moveTo(hilt.x, hilt.y);
+        ctx.lineTo(tip.x, tip.y);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#f2cf7f';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(hilt.x - 5, hilt.y + 2);
+        ctx.lineTo(hilt.x + 5, hilt.y - 2);
+        ctx.stroke();
+    } else if (gooseSkin.weapon === 'hammer') {
+        const handleTop = projectPoint(goose.x + directionX * 10, goose.y + directionY * 8, 28);
+        const handleBottom = projectPoint(goose.x + directionX * 6, goose.y + directionY * 12, 6);
+        ctx.strokeStyle = '#91673d';
+        ctx.lineWidth = 2.8;
+        ctx.beginPath();
+        ctx.moveTo(handleTop.x, handleTop.y);
+        ctx.lineTo(handleBottom.x, handleBottom.y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#9da7b4';
+        ctx.fillRect(handleTop.x - 6, handleTop.y - 3, 12, 6);
+    }
 
     ctx.fillStyle = '#f39c12';
     ctx.beginPath();
@@ -1309,8 +1744,16 @@ function frame(timestamp) {
 
 window.addEventListener('keydown', event => {
     const key = event.key.toLowerCase();
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'e'].includes(key) || event.code === 'Space') {
+    const isFocusToggle = key === 'h' || event.code === 'KeyH';
+    const isInteractKey = key === 'e' || event.code === 'KeyE';
+
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'e', 'h'].includes(key) || event.code === 'Space' || event.code === 'KeyE' || event.code === 'KeyH') {
         event.preventDefault();
+    }
+
+    if (isFocusToggle) {
+        toggleFocusMode();
+        return;
     }
 
     if (event.code === 'Space' || key === ' ') {
@@ -1318,8 +1761,7 @@ window.addEventListener('keydown', event => {
         return;
     }
 
-    if (event.key === 'e' || event.key === 'E') {
-        event.preventDefault();
+    if (isInteractKey) {
         if (typeof handleInteract === 'function') {
             handleInteract();
         }
@@ -1333,9 +1775,40 @@ window.addEventListener('keyup', event => {
     keys.delete(event.key.toLowerCase());
 });
 
+window.addEventListener('fullscreenchange', () => {
+    const isGameFullscreen = document.fullscreenElement === gameShell;
+    if (!isGameFullscreen && focusMode) {
+        focusMode = false;
+        pageBody.classList.remove('focus-mode');
+    }
+});
+
 restartButton.addEventListener('click', () => {
     resetGame();
 });
 
+if (outfitSelect) {
+    outfitSelect.addEventListener('change', event => {
+        gooseSkin.outfit = event.target.value;
+        saveGooseSkin();
+    });
+}
+
+if (hatSelect) {
+    hatSelect.addEventListener('change', event => {
+        gooseSkin.hat = event.target.value;
+        saveGooseSkin();
+    });
+}
+
+if (weaponSelect) {
+    weaponSelect.addEventListener('change', event => {
+        gooseSkin.weapon = event.target.value;
+        saveGooseSkin();
+    });
+}
+
+loadGooseSkin();
+syncGooseSkinUI();
 resetGame();
 requestAnimationFrame(frame);

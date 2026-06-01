@@ -9,6 +9,8 @@ let carriedItem = null;
 let pickupCooldown = 0;
 
 const FREE_PECK_RANGE = 52;
+const WEAPON_ATTACK_RANGE = 78;
+const WEAPON_TARGET_TYPES = new Set([ENEMY_TYPES.GARDENER, ENEMY_TYPES.FARMER, ENEMY_TYPES.WOODCUTTER]);
 const IMMOVABLE_OBJECT_IDS = new Set(['gate', 'table', 'sewer']);
 
 function isTaskLevel() {
@@ -268,6 +270,39 @@ function findNearbyCrownHelperNpc() {
   return nearest;
 }
 
+function tryWeaponAttackGardener() {
+  if (typeof gooseSkin === 'undefined' || !gooseSkin || !gooseSkin.weapon) return false;
+  if (typeof enemy === 'undefined' || !enemy || enemy._defeated) return false;
+
+  const level = LEVELS[currentLevelIndex];
+  if (!level || !level.enemy) return false;
+  if (!WEAPON_TARGET_TYPES.has(level.enemy.type)) return false;
+
+  const dist = Math.hypot(goose.x - enemy.x, goose.y - enemy.y);
+  if (dist > WEAPON_ATTACK_RANGE) {
+    message = '提示：再靠近一点再出手。';
+    return false;
+  }
+
+  enemy._defeated = true;
+  enemy._defeatFxTimer = 2.2;
+  enemy.alert = 0;
+  enemy.chaseTimer = 0;
+  enemy.investigateTimer = 0;
+  enemy.investigatePoint = null;
+  enemy.state = 'defeated';
+  pickupCooldown = 0.45;
+  goose.pickupGraceTimer = Math.max(goose.pickupGraceTimer || 0, 0.8);
+
+  if (typeof ripples !== 'undefined') {
+    ripples.push({ x: goose.x, y: goose.y, radius: 12, life: 0.35 });
+  }
+
+  message = '提示：你用武器击退了守卫者！';
+  triggerSpeech({ speaker: 'goose', text: '嘎！别追我了！', duration: 1.8 });
+  return true;
+}
+
 function tryWearCrownByNpcHelp() {
   if (typeof crownRewardUnlocked === 'undefined' || !crownRewardUnlocked) return false;
   if (typeof gooseWearingCrown !== 'undefined' && gooseWearingCrown) return false;
@@ -315,6 +350,12 @@ function tryTakeCrownReward() {
 
 function handleInteract() {
   if (gameState !== 'playing') return;
+
+  // 武器攻击优先，不受普通交互冷却限制
+  if (tryWeaponAttackGardener()) {
+    return;
+  }
+
   if (pickupCooldown > 0) return;
 
   if (tryTakeCrownReward()) {
@@ -380,6 +421,9 @@ function handleInteract() {
           const enemyData = LEVELS[currentLevelIndex].enemy;
           if (task.requiresEnemyState === 'lookingDown') {
             if (!enemyData._isLookingDown) return;
+          }
+          if (task.requiresEnemyState === 'holdingUmbrella') {
+            if (!enemy || enemy._umbrellaDropped || !enemy._hasUmbrella) return;
           }
         }
         // Check enemy phase precondition (woodcutter phase 2)
